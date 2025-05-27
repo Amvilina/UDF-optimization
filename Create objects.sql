@@ -21,7 +21,7 @@ BEGIN
     UPPER(SUBSTRING(PATRONYMIC, 1, 1)) + '.' FROM Employee
     WHERE ID_EMPLOYEE = @ID_EMPLOYEE
   SET @RESULT = RTRIM (REPLACE(@RESULT, '. .', ''))
-  
+
   IF @RESULT = ''
 	SELECT @RESULT = LOGIN_NAME FROM Employee Where Id_Employee = @ID_Employee
   RETURN @RESULT
@@ -73,11 +73,11 @@ BEGIN
      select @result = count(*) from workitem
      where id_work = @id_work
      -- не является групповым
-     and id_analiz 
-	 not in 
-		 (select id_analiz 
+     and id_analiz
+	 not in
+		 (select id_analiz
 		 from analiz where is_group = 1)
-     
+
 	 and is_complit = @is_complit
 
      Return @result
@@ -88,57 +88,60 @@ SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
-
-CREATE FUNCTION [dbo].[F_WORKS_LIST] (
-)
-RETURNS @RESULT TABLE
-(
-ID_WORK INT,
-CREATE_Date DATETIME,
-MaterialNumber DECIMAL(8,2),
-IS_Complit BIT,
-FIO VARCHAR(255),
-D_DATE varchar(10),
-WorkItemsNotComplit int,
-WorkItemsComplit int,
-FULL_NAME VARCHAR(101),
-StatusId smallint,
-StatusName VARCHAR(255),
-Is_Print bit
-)
+CREATE FUNCTION [dbo].[F_WORKS_LIST]()
+RETURNS TABLE
 AS
--- СПИСОК РАБОТ
-begin
-insert into @result
-SELECT
-  Works.Id_Work,
-  Works.CREATE_Date,
-  Works.MaterialNumber,
-  Works.IS_Complit,
-  Works.FIO,
-  convert(varchar(10), works.CREATE_Date, 104 ) as D_DATE,
-  dbo.F_WORKITEMS_COUNT_BY_ID_WORK(works.Id_Work,0) as WorkItemsNotComplit,
-  dbo.F_WORKITEMS_COUNT_BY_ID_WORK(works.Id_Work,1) as WorkItemsComplit,
-  dbo.F_EMPLOYEE_FULLNAME(Works.Id_Employee) as EmployeeFullName,
-  Works.StatusId,
-  WorkStatus.StatusName,
-  case
-      when (Works.Print_Date is not null) or
-      (Works.SendToClientDate is not null) or
-      (works.SendToDoctorDate is not null) or
-      (Works.SendToOrgDate is not null) or
-      (Works.SendToFax is not null)
-      then 1
-      else 0
-  end as Is_Print  
-FROM
- Works
- left outer join WorkStatus on (Works.StatusId = WorkStatus.StatusID)
-where
- WORKS.IS_DEL <> 1
- order by id_work desc -- works.MaterialNumber desc
-return
-end
+RETURN
+    SELECT
+        w.Id_Work,
+        w.CREATE_Date,
+        w.MaterialNumber,
+        w.IS_Complit,
+        w.FIO,
+        CONVERT(varchar(10), w.CREATE_Date, 104) AS D_DATE,
+        ISNULL(wi_stats.NotCompleted, 0) AS WorkItemsNotComplit,
+        ISNULL(wi_stats.Completed, 0) AS WorkItemsComplit,
+        ISNULL(emp.FULL_NAME, CAST(w.Id_Employee AS VARCHAR(101))) AS FULL_NAME,
+        w.StatusId,
+        ws.StatusName,
+        CASE
+            WHEN w.Print_Date IS NOT NULL
+              OR w.SendToClientDate IS NOT NULL
+              OR w.SendToDoctorDate IS NOT NULL
+              OR w.SendToOrgDate IS NOT NULL
+              OR w.SendToFax IS NOT NULL
+            THEN 1 ELSE 0
+        END AS Is_Print
+    FROM Works w
+    LEFT JOIN WorkStatus ws
+        ON w.StatusId = ws.StatusID
+    LEFT JOIN (
+        SELECT
+            wi.Id_Work,
+            COUNT(CASE WHEN wi.Is_Complit = 0 THEN 1 END) AS NotCompleted,
+            COUNT(CASE WHEN wi.Is_Complit = 1 THEN 1 END) AS Completed
+        FROM WorkItem wi
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM Analiz a
+            WHERE a.ID_ANALIZ = wi.ID_ANALIZ
+              AND a.IS_GROUP = 1
+        )
+        GROUP BY wi.Id_Work
+    ) wi_stats
+        ON wi_stats.Id_Work = w.Id_Work
+    LEFT JOIN (
+        SELECT
+            e.Id_Employee,
+            RTRIM(
+                e.SURNAME + ' ' +
+                COALESCE(NULLIF(UPPER(LEFT(e.Name, 1)), ''), '') + '. ' +
+                COALESCE(NULLIF(UPPER(LEFT(e.Patronymic, 1)), ''), '') + '.'
+            ) AS FULL_NAME
+        FROM Employee e
+    ) emp
+        ON emp.Id_Employee = w.Id_Employee
+    WHERE w.Is_Del = 0;
 
 GO
 /****** Object:  Table [dbo].[Analiz]    Script Date: 28.04.2024 19:21:25 ******/
@@ -157,7 +160,7 @@ CREATE TABLE [dbo].[Analiz](
 	[Price] [decimal](8, 2) NULL,
 	[NormText] [varchar](2048) NULL,
 	[UnNormText] [varchar](2048) NULL,
-PRIMARY KEY CLUSTERED 
+PRIMARY KEY CLUSTERED
 (
 	[ID_ANALIZ] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
@@ -183,7 +186,7 @@ CREATE TABLE [dbo].[Employee](
 	[IS_Role] [bit] NOT NULL,
 	[Role] [int] NULL,
 	[FULL_NAME]  AS (([SURNAME]+' ')+[NAME]),
-PRIMARY KEY CLUSTERED 
+PRIMARY KEY CLUSTERED
 (
 	[Id_Employee] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
@@ -203,7 +206,7 @@ CREATE TABLE [dbo].[Organization](
 	[SecondEmail] [varchar](255) NULL,
 	[Fax] [varchar](255) NULL,
 	[SecondFax] [varchar](255) NULL,
-PRIMARY KEY CLUSTERED 
+PRIMARY KEY CLUSTERED
 (
 	[ID_ORGANIZATION] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
@@ -222,7 +225,7 @@ CREATE TABLE [dbo].[PrintTemplate](
 	[Comment] [varchar](255) NULL,
 	[TemplateBody] [image] NULL,
 	[Id_TemplateType] [int] NULL,
-PRIMARY KEY CLUSTERED 
+PRIMARY KEY CLUSTERED
 (
 	[Id_PrintTemplate] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
@@ -236,7 +239,7 @@ GO
 CREATE TABLE [dbo].[SelectType](
 	[Id_SelectType] [int] IDENTITY(1,1) NOT NULL,
 	[SelectType] [varchar](50) NULL,
-PRIMARY KEY CLUSTERED 
+PRIMARY KEY CLUSTERED
 (
 	[Id_SelectType] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
@@ -251,7 +254,7 @@ CREATE TABLE [dbo].[TemplateType](
 	[Id_TemplateType] [int] IDENTITY(1,1) NOT NULL,
 	[TemlateVal] [varchar](50) NULL,
 	[Comment] [varchar](255) NULL,
-PRIMARY KEY CLUSTERED 
+PRIMARY KEY CLUSTERED
 (
 	[Id_TemplateType] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
@@ -275,7 +278,7 @@ CREATE TABLE [dbo].[WorkItem](
 	[Is_NormTextPrint] [bit] NULL,
 	[Price] [decimal](8, 2) NULL,
 	[Id_SelectType] [int] NULL,
-PRIMARY KEY CLUSTERED 
+PRIMARY KEY CLUSTERED
 (
 	[ID_WORKItem] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
@@ -323,7 +326,7 @@ CREATE TABLE [dbo].[Works](
 	[SendToDoctorDate] [datetime] NULL,
 	[SendToFax] [datetime] NULL,
 	[SendToApp] [datetime] NULL,
-PRIMARY KEY CLUSTERED 
+PRIMARY KEY CLUSTERED
 (
 	[Id_Work] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
@@ -337,7 +340,7 @@ GO
 CREATE TABLE [dbo].[WorkStatus](
 	[StatusID] [smallint] IDENTITY(1,1) NOT NULL,
 	[StatusName] [varchar](255) NULL,
- CONSTRAINT [PK_WorkStatus] PRIMARY KEY CLUSTERED 
+ CONSTRAINT [PK_WorkStatus] PRIMARY KEY CLUSTERED
 (
 	[StatusID] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
